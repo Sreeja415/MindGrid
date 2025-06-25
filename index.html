@@ -47,6 +47,17 @@
             -webkit-text-fill-color: transparent;
         }
 
+        #timer-display {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #ef4444; /* Red color for timer */
+            margin-bottom: 15px;
+            padding: 8px 15px;
+            border-radius: 8px;
+            background-color: #ffe4e6; /* Light red background */
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
         #sudoku-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr); /* 4 columns */
@@ -145,6 +156,13 @@
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
         }
 
+        .btn:disabled {
+            background: #a0aec0; /* Gray out when disabled */
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
         .btn-primary {
             background: linear-gradient(145deg, #667eea, #764ba2);
             color: white;
@@ -177,13 +195,7 @@
             transform: translateY(-2px);
             box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2);
         }
-        .btn-gemini:disabled {
-            background: #a0aec0; /* Gray out when disabled */
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
+        
         #message-box {
             margin-top: 25px;
             padding: 15px 20px;
@@ -261,6 +273,7 @@
 <body>
     <div id="game-container">
         <h1>4x4 Sudoku</h1>
+        <div id="timer-display">01:45</div> <!-- Timer display element -->
         <div id="sudoku-grid">
             <!-- Cells will be dynamically generated here by JavaScript -->
         </div>
@@ -278,24 +291,33 @@
         // Sudoku Game Logic
         const SUDOKU_SIZE = 4;
         const SUBGRID_SIZE = 2; // For 4x4, subgrids are 2x2
+        const TIME_LIMIT_SECONDS = 1 * 60 + 45; // Changed to 1 minute 45 seconds
 
         let board = []; // Current state of the board, including user inputs
         let solution = []; // The complete, valid solution for the current puzzle
         let initialBoard = []; // The initial puzzle with given numbers (fixed cells)
+        let timerInterval; // Stores the interval ID for the timer
+        let timeLeft = TIME_LIMIT_SECONDS; // Remaining time in seconds
 
         const sudokuGrid = document.getElementById('sudoku-grid');
         const newGameBtn = document.getElementById('new-game-btn');
         const checkSolutionBtn = document.getElementById('check-solution-btn');
         const getHintBtn = document.getElementById('get-hint-btn');
         const getTipBtn = document.getElementById('get-tip-btn');
-        const explainStepBtn = document.getElementById('explain-step-btn'); // Added Explain Solution Step button
+        const explainStepBtn = document.getElementById('explain-step-btn');
         const messageBox = document.getElementById('message-box');
+        const timerDisplay = document.getElementById('timer-display'); // Timer display element
 
         /**
          * Initializes a new Sudoku game.
          * Generates a new puzzle and renders it on the UI.
          */
         function newGame() {
+            stopTimer(); // Stop any existing timer
+            timeLeft = TIME_LIMIT_SECONDS; // Reset time
+            updateTimerDisplay(); // Update display immediately
+            startTimer(); // Start new timer
+
             // Generate a complete and valid 4x4 Sudoku solution
             solution = generateSudokuSolution(SUDOKU_SIZE);
 
@@ -303,7 +325,6 @@
             initialBoard = JSON.parse(JSON.stringify(solution));
             
             // Remove some numbers to create the puzzle for the user
-            // For a 4x4, usually 6-8 cells are removed for a reasonable difficulty.
             let cellsToRemove = 8; 
             let removedCount = 0;
             while (removedCount < cellsToRemove) {
@@ -319,7 +340,63 @@
             board = JSON.parse(JSON.stringify(initialBoard));
             renderBoard();
             displayMessage('', false); // Clear any previous messages
+            setAllInputsEnabled(true); // Ensure inputs are enabled at new game
+            setButtonStates(false); // Enable all buttons for a new game
         }
+
+        /**
+         * Starts the game timer.
+         */
+        function startTimer() {
+            stopTimer(); // Ensure no multiple timers are running
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                updateTimerDisplay();
+                if (timeLeft <= 0) {
+                    stopTimer();
+                    handleTimeUp();
+                }
+            }, 1000);
+        }
+
+        /**
+         * Stops the game timer.
+         */
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+        }
+
+        /**
+         * Updates the timer display in MM:SS format.
+         */
+        function updateTimerDisplay() {
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            const formattedTime = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            timerDisplay.textContent = formattedTime;
+
+            if (timeLeft <= 60 && timeLeft > 0) { // Less than 1 minute remaining
+                timerDisplay.style.color = '#dc2626'; // Darker red
+            } else if (timeLeft <= 0) {
+                timerDisplay.style.color = '#ef4444'; // Original red
+            } else {
+                timerDisplay.style.color = '#ef4444'; // Original red
+            }
+        }
+
+        /**
+         * Handles the event when the time limit expires.
+         */
+        function handleTimeUp() {
+            displayMessage("Time's Up! Game Over.", true); // isError = true
+            setAllInputsEnabled(false); // Disable all inputs
+            setButtonStates(true); // Disable all control buttons
+            newGameBtn.disabled = false; // Re-enable New Game button
+        }
+
 
         /**
          * Generates a complete and valid Sudoku solution using backtracking.
@@ -439,6 +516,11 @@
          * @param {Event} event - The input event.
          */
         function handleInput(event) {
+            if (timeLeft <= 0) { // Prevent input if time is up
+                event.target.value = ''; // Clear input if trying to type after time up
+                return;
+            }
+
             let value = event.target.value.trim();
             const row = parseInt(event.target.dataset.row);
             const col = parseInt(event.target.dataset.col);
@@ -521,6 +603,12 @@
          * It first checks rules, then against the unique solution.
          */
         function checkSolution() {
+            // Prevent checking if time is already up
+            if (timeLeft <= 0) {
+                displayMessage("Time's Up! You cannot check the solution.", true);
+                return;
+            }
+
             // 1. Check if the board is completely filled
             for (let r = 0; r < SUDOKU_SIZE; r++) {
                 for (let c = 0; c < SUDOKU_SIZE; c++) {
@@ -549,6 +637,10 @@
             }
 
             displayMessage('Congratulations! You solved the Sudoku!', false, true); // isSuccess = true
+            stopTimer(); // Stop timer when solved
+            setAllInputsEnabled(false); // Disable all inputs
+            setButtonStates(true); // Disable all control buttons
+            newGameBtn.disabled = false; // Re-enable New Game button
         }
         
         /**
@@ -585,6 +677,12 @@
          * The hint will suggest a valid number for an empty cell.
          */
         async function getHint() {
+            // Prevent hint if time is up
+            if (timeLeft <= 0) {
+                displayMessage("Time's Up! Cannot get a hint.", true);
+                return;
+            }
+
             displayMessage('Getting a hint from Gemini AI...', false, false, false, true); // Show loading message
             // Disable buttons during API call
             setButtonStates(true);
@@ -707,6 +805,12 @@
          * Fetches a general Sudoku tip from the Gemini API.
          */
         async function getSudokuTip() {
+            // Prevent tip if time is up
+            if (timeLeft <= 0) {
+                displayMessage("Time's Up! Cannot get a tip.", true);
+                return;
+            }
+
             displayMessage('Getting a Sudoku tip from Gemini AI...', false, false, false, true); // Show loading message
             // Disable buttons during API call
             setButtonStates(true);
@@ -765,6 +869,12 @@
          * Explains a logical step to solve an empty cell using the Gemini API.
          */
         async function explainSolutionStep() {
+            // Prevent explanation if time is up
+            if (timeLeft <= 0) {
+                displayMessage("Time's Up! Cannot get solution explanation.", true);
+                return;
+            }
+
             const emptyCell = findFirstEmptyCell();
             if (!emptyCell) {
                 displayMessage('The board is already full! No steps to explain.', false, false, true); // isInfo = true
@@ -827,6 +937,25 @@
             getTipBtn.disabled = disabled;
             explainStepBtn.disabled = disabled;
         }
+
+        /**
+         * Enables or disables all input fields on the Sudoku board.
+         * @param {boolean} enabled - True to enable, false to disable.
+         */
+        function setAllInputsEnabled(enabled) {
+            const inputs = sudokuGrid.querySelectorAll('input');
+            inputs.forEach(input => {
+                // Only enable/disable if not a fixed cell
+                const row = parseInt(input.dataset.row);
+                const col = parseInt(input.dataset.col);
+                if (initialBoard[row][col] === 0) { // Only affect non-fixed cells
+                    input.readOnly = !enabled;
+                    input.style.pointerEvents = enabled ? 'auto' : 'none';
+                    input.style.cursor = enabled ? 'text' : 'default';
+                }
+            });
+        }
+
 
         // Event Listeners
         newGameBtn.addEventListener('click', newGame);
